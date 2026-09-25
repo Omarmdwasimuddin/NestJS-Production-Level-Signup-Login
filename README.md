@@ -77,6 +77,7 @@ export class AppModule {}
 ```
 ---
 
+## Validation Setup — class-validator (Production Standard) + DTOs
 
 #### Packages instal
 ```bash
