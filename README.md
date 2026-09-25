@@ -109,7 +109,7 @@ import { IsEmail, IsString, MinLength, MaxLength, Matches } from 'class-validato
 
 export class RegisterDto {
   @IsEmail({}, { message: 'Valid email address দিতে হবে' })
-  email: string;
+  email!: string;
 
   @IsString()
   @MinLength(8, { message: 'Password কমপক্ষে 8 characters হতে হবে' })
@@ -117,7 +117,7 @@ export class RegisterDto {
   @Matches(/(?=.*[a-z])/, { message: 'Password-এ একটা lowercase letter থাকতে হবে' })
   @Matches(/(?=.*[A-Z])/, { message: 'Password-এ একটা uppercase letter থাকতে হবে' })
   @Matches(/(?=.*\d)/, { message: 'Password-এ একটা digit থাকতে হবে' })
-  password: string;
+  password!: string;
 }
 ```
 ---
