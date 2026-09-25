@@ -64,3 +64,9 @@ export class AppModule {}
 ---
 
 
+#### Packages instal
+```bash
+npm install class-validator class-transformer
+```
+---
+
