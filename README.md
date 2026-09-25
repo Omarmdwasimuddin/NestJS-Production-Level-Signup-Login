@@ -162,3 +162,16 @@ npm install -D @types/bcrypt
 ---
 
 
+#### Auth module generate koro
+```bash
+nest g module auth
+```
+```bash
+nest g service auth
+```
+```bash
+nest g controller auth
+```
+---
+
+
