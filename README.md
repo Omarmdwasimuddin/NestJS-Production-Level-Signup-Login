@@ -276,3 +276,10 @@ export const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 ---
 
 
+#### `auth.service.ts`
+```bash
+
+```
+---
+
+
