@@ -103,3 +103,23 @@ mkdir -p src/auth/dto
 ---
 
 
+#### `src/auth/dto/register.dto.ts`
+```bash
+import { IsEmail, IsString, MinLength, MaxLength, Matches } from 'class-validator';
+
+export class RegisterDto {
+  @IsEmail({}, { message: 'Valid email address দিতে হবে' })
+  email: string;
+
+  @IsString()
+  @MinLength(8, { message: 'Password কমপক্ষে 8 characters হতে হবে' })
+  @MaxLength(72, { message: 'Password 72 characters-এর বেশি হতে পারবে না' }) // bcrypt 72-byte limit
+  @Matches(/(?=.*[a-z])/, { message: 'Password-এ একটা lowercase letter থাকতে হবে' })
+  @Matches(/(?=.*[A-Z])/, { message: 'Password-এ একটা uppercase letter থাকতে হবে' })
+  @Matches(/(?=.*\d)/, { message: 'Password-এ একটা digit থাকতে হবে' })
+  password: string;
+}
+```
+---
+
+
