@@ -94,3 +94,12 @@ async function bootstrap() {
 bootstrap();
 ```
 ---
+
+
+#### dto folder create koro
+```bash
+mkdir -p src/auth/dto
+```
+---
+
+
