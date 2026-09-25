@@ -420,3 +420,38 @@ export class AuthController {
 ---
 
 
+## JWT Issuing — Access Token + Refresh Token Strategy
+
+#### Packages instal koro
+```bash
+npm install @nestjs/jwt @nestjs/config
+```
+```bash
+npm install cookie-parser
+```
+```bash
+npm install -D @types/cookie-parser
+```
+---
+
+
+#### `.env`
+```bash
+Project name: mydb
+Database password: 2JFZsODxcbO2PW1L
+
+DATABASE_URL="postgresql://postgres.rdjuzuwtfrpmvfsmswxy:2JFZsODxcbO2PW1L@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres"
+
+JWT_ACCESS_SECRET="9515db6748b29c4cb034728f700d622d740e2543cf8a82aee8c2bb72ec89fff85117995897baa3225682c77b1cd1443efd4107b185c8df83b1f4a2aa79912377"
+JWT_ACCESS_EXPIRY="15m"
+JWT_REFRESH_SECRET="b9584e5920f08d64119b620a938ac75a2ee6899e99cf4353555a9b1318d0fd9e43bc7af0bb923306f23dc33dd793ad1b520c1fef8c47ff628f2f582505d60803"
+JWT_REFRESH_EXPIRY="7d"
+```
+---
+
+#### Random secret generate korar jonno
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
+---
+
