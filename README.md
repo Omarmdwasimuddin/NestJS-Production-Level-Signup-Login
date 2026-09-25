@@ -34,3 +34,33 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 }
 ```
 ---
+
+
+#### `src/prisma/prisma.module.ts`
+```bash
+import { Global, Module } from '@nestjs/common';
+import { PrismaService } from './prisma.service';
+
+@Global()
+@Module({
+  providers: [PrismaService],
+  exports: [PrismaService],
+})
+export class PrismaModule {}
+```
+---
+
+
+#### `app.module.ts`
+```bash
+import { Module } from '@nestjs/common';
+import { PrismaModule } from './prisma/prisma.module';
+
+@Module({
+  imports: [PrismaModule],
+})
+export class AppModule {}
+```
+---
+
+
