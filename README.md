@@ -152,3 +152,13 @@ export class LoginDto {
 ---
 
 
+#### bcrypt install koro
+```bash
+npm install bcrypt
+```
+```bash
+npm install -D @types/bcrypt
+```
+---
+
+
