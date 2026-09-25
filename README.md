@@ -70,3 +70,27 @@ npm install class-validator class-transformer
 ```
 ---
 
+
+#### `main.ts`
+```bash
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,          // DTO-তে না থাকা extra field silently drop করবে
+      forbidNonWhitelisted: true, // extra field থাকলে error throw করবে (security: mass-assignment prevent)
+      transform: true,          // payload কে DTO class instance-এ auto-transform করবে
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
+  await app.listen(process.env.PORT ?? 3000);
+}
+bootstrap();
+```
+---
