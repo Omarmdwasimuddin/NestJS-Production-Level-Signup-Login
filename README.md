@@ -151,6 +151,7 @@ export class LoginDto {
 ```
 ---
 
+## Auth Module + Register Logic (bcrypt + Prisma Error Handling)
 
 #### bcrypt install koro
 ```bash
