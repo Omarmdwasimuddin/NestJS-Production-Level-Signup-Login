@@ -123,3 +123,18 @@ export class RegisterDto {
 ---
 
 
+#### `src/auth/dto/login.dto.ts`
+```bash
+import { IsEmail, IsString } from 'class-validator';
+
+export class LoginDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  password: string;
+}
+```
+---
+
+
