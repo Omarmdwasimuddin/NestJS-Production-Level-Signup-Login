@@ -7,3 +7,12 @@ nest new secure-auth-api
 ---
 
 [Connect NestJ with Prisma and Supabase (Prisma v7.10.0)](https://github.com/Omarmdwasimuddin/Connect-NestJ-with-Prisma-and-Supabase-Prisma-v7.10.0-)
+
+#### Generate Prisma Service & Module
+```bash
+nest g service prisma
+```
+```bash
+nest g module prisma
+```
+---
