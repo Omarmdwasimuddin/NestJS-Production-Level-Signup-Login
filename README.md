@@ -175,3 +175,56 @@ nest g controller auth
 ---
 
 
+#### `src/auth/auth.service.ts`
+```bash
+import {
+  Injectable,
+  ConflictException,
+  InternalServerErrorException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../prisma/prisma.service';
+import { RegisterDto } from './dto/register.dto';
+
+@Injectable()
+export class AuthService {
+  private readonly SALT_ROUNDS = 12; // 10 default, 12 production-grade balance (security vs speed)
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async register(dto: RegisterDto) {
+    const passwordHash = await bcrypt.hash(dto.password, this.SALT_ROUNDS);
+
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          password: passwordHash,
+        },
+        select: {
+          // explicit select — password hash কখনো response-এ যাবে না
+          id: true,
+          email: true,
+          createdAt: true,
+        },
+      });
+
+      return user;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' // unique constraint violation
+      ) {
+        throw new ConflictException('এই email দিয়ে already একটা account আছে');
+      }
+
+      // অজানা DB error — client-কে internal detail leak না করে generic error
+      throw new InternalServerErrorException('Registration করতে সমস্যা হয়েছে');
+    }
+  }
+}
+```
+---
+
+
