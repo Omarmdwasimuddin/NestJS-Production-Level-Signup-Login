@@ -478,3 +478,60 @@ export class AuthModule {}
 ---
 
 
+#### `auth.service.ts`
+```bash
+
+```
+---
+
+
+#### Refresh token httpOnly cookie-te set koro
+#### `main.ts`
+```bash
+import * as cookieParser from 'cookie-parser';
+// bootstrap() function-এর ভেতরে:
+app.use(cookieParser());
+```
+---
+
+
+#### `auth.controller.ts`
+```bash
+import { Body, Controller, Post, HttpCode, HttpStatus, Res } from '@nestjs/common';
+import { Response } from 'express';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, accessToken, refreshToken } = await this.authService.login(dto);
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', // dev-এ HTTPS না থাকলে false লাগবে
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days, JWT_REFRESH_EXPIRY-র সাথে match রাখা
+      path: '/auth', // শুধু auth routes-এ পাঠানো হবে
+    });
+
+    return { user, accessToken };
+    // refreshToken response body-তে কখনো ফেরত যাবে না — শুধু cookie-তে
+  }
+}
+```
+---
+
+
+
