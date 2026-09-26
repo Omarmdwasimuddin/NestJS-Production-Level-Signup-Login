@@ -968,17 +968,83 @@ export class JwtAuthGuard implements CanActivate {
 
 #### `auth.controller.ts`
 ```bash
+import { Body, Controller, Post, HttpCode, HttpStatus, Res, Req, UnauthorizedException, Get } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto'
+import type { Response, Request } from 'express';
 import { UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
-@UseGuards(JwtAuthGuard)
-@Get('me')
-getProfile(@Req() req: Request) {
-  return req['user'];
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, accessToken, refreshToken } = await this.authService.login(dto);
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', // dev-এ HTTPS না থাকলে false লাগবে
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days, JWT_REFRESH_EXPIRY-র সাথে match রাখা
+      path: '/auth', // শুধু auth routes-এ পাঠানো হবে
+    });
+
+    return { user, accessToken };
+    // refreshToken response body-তে কখনো ফেরত যাবে না — শুধু cookie-তে
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+  const oldRefreshToken = (req as Request & { cookies?: Record<string, string> }).cookies?.['refresh_token'];
+
+  if (!oldRefreshToken) {
+    throw new UnauthorizedException('Refresh token পাওয়া যায়নি');
+  }
+
+  const { user, accessToken, refreshToken } =
+    await this.authService.refreshTokens(oldRefreshToken);
+
+  res.cookie('refresh_token', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: '/auth',
+  });
+
+  return { user, accessToken };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  getProfile(@Req() req: Request) {
+    return req['user'];
+  }
+
 }
 ```
 ---
 
+
+## 
 
 #### ``
 ```bash
