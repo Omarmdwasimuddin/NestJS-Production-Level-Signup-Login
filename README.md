@@ -1054,3 +1054,102 @@ npm install helmet
 npm install @nestjs/throttler
 ```
 ---
+
+
+#### `main.ts` -এ Helmet + CORS add koro
+```bash
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { AppModule } from './app.module';
+import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  app.use(helmet());
+
+  app.enableCors({
+    origin: process.env.FRONTEND_URL, // exact frontend origin, '*' কখনো credentials সহ ব্যবহার করা যায় না
+    credentials: true, // refresh_token cookie পাঠাতে/গ্রহণ করতে হলে এটা লাগবে
+  });
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
+  app.use(cookieParser());
+
+  await app.listen(process.env.PORT ?? 3000);
+}
+bootstrap();
+```
+---
+
+
+#### `.env`
+>#### origin: '*' + credentials: true একসাথে ব্যবহার করলে browser cookie পাঠাবে না (spec violation) — তাই exact origin দেওয়া must।
+```bash
+FRONTEND_URL="http://localhost:3001"
+```
+---
+
+
+#### Rate Limiting (Throttler) — global + strict auth-specific
+#### `app.module.ts` e global throttler setup:
+```bash
+import { Module } from '@nestjs/common';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './auth/auth.module';
+
+@Module({
+  imports: [
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 1 minute window
+        limit: 20,  // general routes-এর জন্য default (generous)
+      },
+    ]),
+    PrismaModule,
+    AuthModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard, // global enable — সব route by default rate-limited
+    },
+  ],
+})
+export class AppModule {}
+```
+---
+
+#### Auth endpoints-এ strict override (login/register brute-force target বেশি)
+#### `auth.controller.ts`-এ per-route override:
+```bash
+import { Throttle } from '@nestjs/throttler';
+
+@Post('register')
+@HttpCode(HttpStatus.CREATED)
+@Throttle({ default: { limit: 3, ttl: 60000 } }) // 1 min-এ max 3 বার
+register(@Body() dto: RegisterDto) {
+  return this.authService.register(dto);
+}
+
+@Post('login')
+@HttpCode(HttpStatus.OK)
+@Throttle({ default: { limit: 5, ttl: 60000 } }) // 1 min-এ max 5 বার
+async login(/* ... */) {
+  // ...
+}
+```
+---
+
+
