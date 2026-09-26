@@ -1257,7 +1257,7 @@ export const {
     path: '/',
   },
   size: 64,
-  getSessionIdentifier: (req) => req.ip, // session না থাকায় IP fallback (নিচে note দেখো)
+  getSessionIdentifier: (req) => req.ip ?? 'unknown', // session না থাকায় IP fallback (নিচে note দেখো)
 });
 ```
 ---
