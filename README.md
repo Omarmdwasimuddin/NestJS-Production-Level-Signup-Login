@@ -1400,24 +1400,3 @@ export class AuthController {
 ---
 
 
-#### `main.ts`
-```bash
-import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
-import { doubleCsrfProtection } from './common/csrf/csrf.config';
-
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(doubleCsrfProtection)
-      .exclude(
-        { path: 'auth/register', method: RequestMethod.POST },
-        { path: 'auth/login', method: RequestMethod.POST },
-        { path: 'auth/csrf-token', method: RequestMethod.GET },
-      )
-      .forRoutes('*');
-  }
-}
-```
----
-
-
