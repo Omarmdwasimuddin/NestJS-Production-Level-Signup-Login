@@ -1231,3 +1231,93 @@ export class AuthController {
 ---
 
 
+## CSRF Protection
+
+#### Package (csrf-csrf, modern replacement — পুরনো csurf deprecated)
+```bash
+npm install csrf-csrf
+```
+---
+
+#### CSRF middleware setup
+#### `src/common/csrf/csrf.config.ts`
+```bash
+import { doubleCsrf } from 'csrf-csrf';
+
+export const {
+  doubleCsrfProtection,
+  generateCsrfToken,
+} = doubleCsrf({
+  getSecret: () => process.env.CSRF_SECRET as string,
+  cookieName: 'csrf_token',
+  cookieOptions: {
+    httpOnly: false, // frontend JS পড়তে পারবে — এটাই double-submit pattern-এর মূল কথা
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+  },
+  size: 64,
+  getSessionIdentifier: (req) => req.ip, // session না থাকায় IP fallback (নিচে note দেখো)
+});
+```
+---
+
+
+#### `.env`
+```bash
+CSRF_SECRET="আরেকটা-random-64-char-string"
+```
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
+---
+
+
+#### `main.ts`-এ middleware wire করো 
+```bash
+import { doubleCsrfProtection } from './common/csrf/csrf.config';
+
+// bootstrap()-এর ভেতরে, cookieParser()-এর পরে:
+app.use(cookieParser());
+app.use(doubleCsrfProtection);
+```
+---
+
+
+#### CSRF token issue করার endpoint বানাও
+#### `auth.controller.ts`
+```bash
+import { Get, Req } from '@nestjs/common';
+import { generateCsrfToken } from '../common/csrf/csrf.config';
+import type { Request } from 'express';
+
+@Get('csrf-token')
+getCsrfToken(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  const token = generateCsrfToken(req, res);
+  return { csrfToken: token };
+}
+```
+---
+
+
+#### `main.ts`
+```bash
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
+import { doubleCsrfProtection } from './common/csrf/csrf.config';
+
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(doubleCsrfProtection)
+      .exclude(
+        { path: 'auth/register', method: RequestMethod.POST },
+        { path: 'auth/login', method: RequestMethod.POST },
+        { path: 'auth/csrf-token', method: RequestMethod.GET },
+      )
+      .forRoutes('*');
+  }
+}
+```
+---
+
+
