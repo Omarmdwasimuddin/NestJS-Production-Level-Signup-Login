@@ -684,4 +684,304 @@ export class AuthController {
 ---
 
 
+## /auth/refresh Endpoint + JwtAuthGuard
 
+#### `auth.service.ts`
+```bash
+import {
+  Injectable,
+  ConflictException,
+  InternalServerErrorException,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { Prisma } from 'generated/prisma/client';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../prisma/prisma.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { MAX_FAILED_ATTEMPTS, LOCKOUT_DURATION_MS } from './auth.constants';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class AuthService {
+  private readonly SALT_ROUNDS = 12; // 10 default, 12 production-grade balance (security vs speed)
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  async register(dto: RegisterDto) {
+    const passwordHash = await bcrypt.hash(dto.password, this.SALT_ROUNDS);
+
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          password: passwordHash,
+        },
+        select: {
+          // explicit select — password hash কখনো response-এ যাবে না
+          id: true,
+          email: true,
+          createdAt: true,
+        },
+      });
+
+      return user;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' // unique constraint violation
+      ) {
+        throw new ConflictException('এই email দিয়ে already একটা account আছে');
+      }
+
+      // অজানা DB error — client-কে internal detail leak না করে generic error
+      throw new InternalServerErrorException('Registration করতে সমস্যা হয়েছে');
+    }
+  }
+
+  async login(dto: LoginDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    // user না পেলেও generic message — email enumeration prevent করার জন্য
+    if (!user) {
+      throw new UnauthorizedException('Email অথবা password ভুল');
+    }
+
+    // Lockout active কিনা check করো
+    if (user.lockoutUntil && user.lockoutUntil > new Date()) {
+      const minutesLeft = Math.ceil(
+        (user.lockoutUntil.getTime() - Date.now()) / 60000,
+      );
+      throw new ForbiddenException(
+        `অনেকবার ভুল চেষ্টার কারণে account সাময়িক লক আছে। ${minutesLeft} মিনিট পর আবার চেষ্টা করো`,
+      );
+    }
+
+    const passwordMatches = await bcrypt.compare(dto.password, user.password);
+
+    if (!passwordMatches) {
+      await this.handleFailedLogin(user.id, user.failedLoginAttempts);
+      throw new UnauthorizedException('Email অথবা password ভুল');
+    }
+
+    // Login successful — counter reset করো (lockout থাকলে সেটাও clear)
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedLoginAttempts: 0,
+        lockoutUntil: null,
+      },
+    });
+
+    const tokens = this.generateTokens(user.id, user.email);
+    return { user: { id: user.id, email: user.email }, ...tokens };
+    }
+
+  private generateTokens(userId: string, email: string) {
+    const payload = { sub: userId, email };
+
+    const accessToken = this.jwtService.sign(payload); // module-এ registered default (access) secret/expiry ব্যবহার করবে
+
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      expiresIn: this.configService.get<JwtSignOptions['expiresIn']>(
+        'JWT_REFRESH_EXPIRY',
+      ),
+    });
+
+    return { accessToken, refreshToken };
+  }
+
+  private async handleFailedLogin(userId: string, currentAttempts: number) {
+    const newAttemptCount = currentAttempts + 1;
+    const shouldLock = newAttemptCount >= MAX_FAILED_ATTEMPTS;
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        failedLoginAttempts: newAttemptCount,
+        lockoutUntil: shouldLock
+          ? new Date(Date.now() + LOCKOUT_DURATION_MS)
+          : undefined,
+      },
+    });
+  }
+
+  async refreshTokens(refreshToken: string) {
+  let payload: { sub: string; email: string };
+
+  try {
+    payload = await this.jwtService.verifyAsync(refreshToken, {
+      secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+    });
+  } catch {
+    throw new UnauthorizedException('Refresh token invalid অথবা expired');
+  }
+
+  // user এখনো exist করে কিনা re-check করা (deleted/deactivated account হলে block হবে)
+  const user = await this.prisma.user.findUnique({
+    where: { id: payload.sub },
+    select: { id: true, email: true },
+  });
+
+  if (!user) {
+    throw new UnauthorizedException('User খুঁজে পাওয়া যায়নি');
+  }
+
+  const tokens = this.generateTokens(user.id, user.email);
+  return { user, ...tokens };
+}
+
+}
+```
+---
+
+
+#### `auth.controller.ts`
+```bash
+import { Body, Controller, Post, HttpCode, HttpStatus, Res, Req, UnauthorizedException } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto'
+import type { Response } from 'express';
+import type { Request } from 'express';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, accessToken, refreshToken } = await this.authService.login(dto);
+
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', // dev-এ HTTPS না থাকলে false লাগবে
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days, JWT_REFRESH_EXPIRY-র সাথে match রাখা
+      path: '/auth', // শুধু auth routes-এ পাঠানো হবে
+    });
+
+    return { user, accessToken };
+    // refreshToken response body-তে কখনো ফেরত যাবে না — শুধু cookie-তে
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+  const oldRefreshToken = (req as Request & { cookies?: Record<string, string> }).cookies?.['refresh_token'];
+
+  if (!oldRefreshToken) {
+    throw new UnauthorizedException('Refresh token পাওয়া যায়নি');
+  }
+
+  const { user, accessToken, refreshToken } =
+    await this.authService.refreshTokens(oldRefreshToken);
+
+  res.cookie('refresh_token', refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: '/auth',
+  });
+
+  return { user, accessToken };
+  }
+
+}
+```
+---
+
+#### JwtAuthGuard banaw (protected routes-er jonno)
+```bash
+mkdir -p src/auth/guards
+```
+---
+
+#### `src/auth/guards/jwt-auth.guard.ts`
+```bash
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
+
+@Injectable()
+export class JwtAuthGuard implements CanActivate {
+  constructor(private readonly jwtService: JwtService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<Request>();
+    const token = this.extractToken(request);
+
+    if (!token) {
+      throw new UnauthorizedException('Access token পাওয়া যায়নি');
+    }
+
+    try {
+      const payload = await this.jwtService.verifyAsync(token);
+      // এখানে access token verify হবে module-এ registered default secret দিয়ে
+      request['user'] = payload; // controller-এ @Req().user দিয়ে access করা যাবে
+    } catch {
+      throw new UnauthorizedException('Access token invalid অথবা expired');
+    }
+
+    return true;
+  }
+
+  private extractToken(request: Request): string | undefined {
+    const authHeader = request.headers['authorization'];
+    if (!authHeader) return undefined;
+
+    const [type, token] = authHeader.split(' ');
+    return type === 'Bearer' ? token : undefined;
+  }
+}
+```
+---
+
+
+#### `auth.controller.ts`
+```bash
+import { UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+
+@UseGuards(JwtAuthGuard)
+@Get('me')
+getProfile(@Req() req: Request) {
+  return req['user'];
+}
+```
+---
+
+
+#### ``
+```bash
+
+```
+---
