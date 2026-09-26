@@ -480,7 +480,134 @@ export class AuthModule {}
 
 #### `auth.service.ts`
 ```bash
+import {
+  Injectable,
+  ConflictException,
+  InternalServerErrorException,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { Prisma } from 'generated/prisma/client';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../prisma/prisma.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { MAX_FAILED_ATTEMPTS, LOCKOUT_DURATION_MS } from './auth.constants';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 
+@Injectable()
+export class AuthService {
+  private readonly SALT_ROUNDS = 12; // 10 default, 12 production-grade balance (security vs speed)
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  async register(dto: RegisterDto) {
+    const passwordHash = await bcrypt.hash(dto.password, this.SALT_ROUNDS);
+
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          password: passwordHash,
+        },
+        select: {
+          // explicit select — password hash কখনো response-এ যাবে না
+          id: true,
+          email: true,
+          createdAt: true,
+        },
+      });
+
+      return user;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' // unique constraint violation
+      ) {
+        throw new ConflictException('এই email দিয়ে already একটা account আছে');
+      }
+
+      // অজানা DB error — client-কে internal detail leak না করে generic error
+      throw new InternalServerErrorException('Registration করতে সমস্যা হয়েছে');
+    }
+  }
+
+  async login(dto: LoginDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    // user না পেলেও generic message — email enumeration prevent করার জন্য
+    if (!user) {
+      throw new UnauthorizedException('Email অথবা password ভুল');
+    }
+
+    // Lockout active কিনা check করো
+    if (user.lockoutUntil && user.lockoutUntil > new Date()) {
+      const minutesLeft = Math.ceil(
+        (user.lockoutUntil.getTime() - Date.now()) / 60000,
+      );
+      throw new ForbiddenException(
+        `অনেকবার ভুল চেষ্টার কারণে account সাময়িক লক আছে। ${minutesLeft} মিনিট পর আবার চেষ্টা করো`,
+      );
+    }
+
+    const passwordMatches = await bcrypt.compare(dto.password, user.password);
+
+    if (!passwordMatches) {
+      await this.handleFailedLogin(user.id, user.failedLoginAttempts);
+      throw new UnauthorizedException('Email অথবা password ভুল');
+    }
+
+    // Login successful — counter reset করো (lockout থাকলে সেটাও clear)
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedLoginAttempts: 0,
+        lockoutUntil: null,
+      },
+    });
+
+    const tokens = this.generateTokens(user.id, user.email);
+    return { user: { id: user.id, email: user.email }, ...tokens };
+    }
+
+  private generateTokens(userId: string, email: string) {
+    const payload = { sub: userId, email };
+
+    const accessToken = this.jwtService.sign(payload); // module-এ registered default (access) secret/expiry ব্যবহার করবে
+
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      expiresIn: this.configService.get<JwtSignOptions['expiresIn']>(
+        'JWT_REFRESH_EXPIRY',
+      ),
+    });
+
+    return { accessToken, refreshToken };
+  }
+
+  private async handleFailedLogin(userId: string, currentAttempts: number) {
+    const newAttemptCount = currentAttempts + 1;
+    const shouldLock = newAttemptCount >= MAX_FAILED_ATTEMPTS;
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        failedLoginAttempts: newAttemptCount,
+        lockoutUntil: shouldLock
+          ? new Date(Date.now() + LOCKOUT_DURATION_MS)
+          : undefined,
+      },
+    });
+  }
+
+}
 ```
 ---
 
@@ -488,17 +615,39 @@ export class AuthModule {}
 #### Refresh token httpOnly cookie-te set koro
 #### `main.ts`
 ```bash
-import * as cookieParser from 'cookie-parser';
-// bootstrap() function-এর ভেতরে:
-app.use(cookieParser());
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { AppModule } from './app.module';
+import cookieParser from 'cookie-parser';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,          
+      forbidNonWhitelisted: true, 
+      transform: true,          
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
+  app.use(cookieParser());
+
+  await app.listen(process.env.PORT ?? 3000);
+}
+bootstrap();
 ```
 ---
 
 
 #### `auth.controller.ts`
 ```bash
-import { Body, Controller, Post, HttpCode, HttpStatus, Res } from '@nestjs/common';
-import { Response } from 'express';
+import { Body, Controller, Post, HttpCode, HttpStatus, Res  } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto'
+import type { Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
@@ -529,6 +678,7 @@ export class AuthController {
     return { user, accessToken };
     // refreshToken response body-তে কখনো ফেরত যাবে না — শুধু cookie-তে
   }
+
 }
 ```
 ---
