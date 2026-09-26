@@ -1101,6 +1101,23 @@ FRONTEND_URL="http://localhost:3001"
 
 
 #### Rate Limiting (Throttler) — global + strict auth-specific
+#### `src/common/guards/custom-throttler.guard.ts`
+```bash
+import { Injectable } from '@nestjs/common';
+import { ThrottlerGuard, ThrottlerException } from '@nestjs/throttler';
+
+@Injectable()
+export class CustomThrottlerGuard extends ThrottlerGuard {
+  protected async throwThrottlingException(): Promise<void> {
+    throw new ThrottlerException(
+      'Too many requests, please try again later.',
+    );
+  }
+}
+```
+---
+
+
 #### `app.module.ts` e global throttler setup:
 ```bash
 import { Module } from '@nestjs/common';
@@ -1112,6 +1129,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
 
 @Module({
   imports: [ ThrottlerModule.forRoot([
@@ -1124,7 +1142,7 @@ import { APP_GUARD } from '@nestjs/core';
   providers: [
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard, // global enable — সব route by default rate-limited
+      useClass: CustomThrottlerGuard, // global enable — সব route by default rate-limited
     }, AppService, PrismaService],
 })
 export class AppModule {}
