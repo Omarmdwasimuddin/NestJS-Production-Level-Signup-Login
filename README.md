@@ -1275,11 +1275,38 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 
 #### `main.ts`-এ middleware wire করো 
 ```bash
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { AppModule } from './app.module';
+import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import { doubleCsrfProtection } from './common/csrf/csrf.config';
 
-// bootstrap()-এর ভেতরে, cookieParser()-এর পরে:
-app.use(cookieParser());
-app.use(doubleCsrfProtection);
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  app.use(helmet());
+
+  app.enableCors({
+    origin: process.env.FRONTEND_URL, // exact frontend origin, '*' কখনো credentials সহ ব্যবহার করা যায় না
+    credentials: true, // refresh_token cookie পাঠাতে/গ্রহণ করতে হলে এটা লাগবে
+  });
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,          
+      forbidNonWhitelisted: true, 
+      transform: true,          
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
+  app.use(cookieParser());
+  app.use(doubleCsrfProtection);
+
+  await app.listen(process.env.PORT ?? 3000);
+}
+bootstrap();
 ```
 ---
 
