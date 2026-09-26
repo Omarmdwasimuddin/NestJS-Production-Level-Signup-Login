@@ -1104,28 +1104,28 @@ FRONTEND_URL="http://localhost:3001"
 #### `app.module.ts` e global throttler setup:
 ```bash
 import { Module } from '@nestjs/common';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { ConfigModule } from '@nestjs/config';
+import { PrismaService } from './prisma/prisma.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
-  imports: [
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60000, // 1 minute window
-        limit: 20,  // general routes-এর জন্য default (generous)
-      },
-    ]),
-    PrismaModule,
-    AuthModule,
-  ],
+  imports: [ ThrottlerModule.forRoot([
+    {
+      ttl: 60000, // 1 minute window
+      limit: 20, // general routes-এর জন্য default (generous)
+    }
+  ]), ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule],
+  controllers: [AppController],
   providers: [
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard, // global enable — সব route by default rate-limited
-    },
-  ],
+    }, AppService, PrismaService],
 })
 export class AppModule {}
 ```
